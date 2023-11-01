@@ -1,0 +1,26 @@
+From d87a21b3ac27bf8551d27c7887b76df383d2ddd0 Mon Sep 17 00:00:00 2001
+From: Gris Ge <fge@redhat.com>
+Date: Tue, 5 Jun 2018 23:13:10 +0800
+Subject: [PATCH] Fix compile on rust 1.20.0
+
+Signed-off-by: Gris Ge <fge@redhat.com>
+---
+ src/peripety/src/scsi.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/peripety/src/scsi.rs b/src/peripety/src/scsi.rs
+index 8369681..bb1a9ad 100644
+--- a/src/peripety/src/scsi.rs
++++ b/src/peripety/src/scsi.rs
+@@ -91,7 +91,7 @@ pub(crate) fn blk_info_get_scsi(blk: &str) -> Result<BlkInfo, PeripetyError> {
+                 }
+             }
+ 
+-            let preferred_blk_path = if let Some(u) = &uuid {
++            let preferred_blk_path = if let Some(ref u) = uuid {
+                 format!("/dev/disk/by-uuid/{}", u)
+             } else {
+                 get_prefered_blk_path(&blk_path)
+-- 
+2.17.1
+
