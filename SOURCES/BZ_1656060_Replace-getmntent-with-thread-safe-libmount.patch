@@ -1,0 +1,121 @@
+From 436ab6dfc07d6c1c7345fdea57aeed2e41a1d72f Mon Sep 17 00:00:00 2001
+From: Gris Ge <fge@redhat.com>
+Date: Tue, 25 Dec 2018 19:38:12 +0800
+Subject: [PATCH] Replace getmntent with thread-safe libmount.
+
+Signed-off-by: Gris Ge <fge@redhat.com>
+---
+ src/peripety/Cargo.toml      |  2 +-
+ src/peripety/src/blk_info.rs | 56 ++++++++++++------------------------
+ src/peripety/src/lib.rs      |  2 +-
+ 3 files changed, 21 insertions(+), 39 deletions(-)
+
+diff --git a/src/peripety/Cargo.toml b/src/peripety/Cargo.toml
+index 8694693..ae6ab4c 100644
+--- a/src/peripety/Cargo.toml
++++ b/src/peripety/Cargo.toml
+@@ -8,4 +8,4 @@ serde = "1.0"
+ serde_json = "1.0"
+ serde_derive = "1.0"
+ regex = "0.2.10"
+-libc = "0.2"
++libmount = ">=0.1.10"
+diff --git a/src/peripety/src/blk_info.rs b/src/peripety/src/blk_info.rs
+index 7f17a00..add54ed 100644
+--- a/src/peripety/src/blk_info.rs
++++ b/src/peripety/src/blk_info.rs
+@@ -3,14 +3,13 @@ use super::error::PeripetyError;
+ use super::scsi;
+ use super::sysfs::Sysfs;
+ 
+-use libc;
+ use regex::Regex;
+ use serde_json;
+-use std::ffi::CStr;
+-use std::ffi::CString;
+ use std::fmt;
+ use std::fs;
++use std::io::Read;
+ use std::path::Path;
++use libmount::mountinfo;
+ 
+ #[derive(Clone, PartialEq, Debug, Serialize)]
+ pub enum BlkType {
+@@ -231,44 +230,27 @@ impl BlkInfo {
+     }
+ 
+     pub fn get_mount_point(blk_path: &str) -> Option<String> {
+-        let mut ret = String::new();
+-        let fd = unsafe {
+-            libc::setmntent(
+-                CStr::from_bytes_with_nul(b"/proc/mounts\0")
+-                    .expect("BUG: get_mount_point()")
+-                    // ^We never panic as it is null terminated.
+-                    .as_ptr(),
+-                CStr::from_bytes_with_nul(b"r\0")
+-                    .expect("BUG")
+-                    .as_ptr(),
+-                // ^We never panic as it is null terminated.
+-            )
+-        };
+-        if fd.is_null() {
+-            return None;
+-        }
+-        let mut entry = unsafe { libc::getmntent(fd) };
+-        while !entry.is_null() {
+-            let table: libc::mntent = unsafe { *entry };
+-            if let Ok(mnt_fsname) =
+-                unsafe { CStr::from_ptr(table.mnt_fsname).to_str() }
+-            {
+-                if mnt_fsname == blk_path {
+-                    if let Ok(s) = unsafe {
+-                        CString::from_raw(table.mnt_dir).into_string()
+-                    } {
+-                        ret = s;
+-                        break;
++        let mut fd = fs::File::open("/proc/self/mountinfo").unwrap();
++        let mut data = Vec::new();
++        fd.read_to_end(&mut data).unwrap();
++
++        for e in mountinfo::Parser::new(&data) {
++            if let Ok(m) = e {
++                // TODO(Gris Ge): we should use read_link() to compare blk_path
++                // and mount_source.
++                if let Some(mount_source) = m.mount_source.into_owned().to_str()
++                {
++                    if let Some(mount_point) =
++                        m.mount_point.into_owned().to_str()
++                    {
++                        if mount_source == blk_path {
++                            return Some(format!("{}", mount_point));
++                        }
+                     }
+                 }
+-                entry = unsafe { libc::getmntent(fd) };
+             }
+         }
+-        unsafe { libc::endmntent(fd) };
+-        if ret.is_empty() {
+-            return None;
+-        }
+-        Some(ret)
++        None
+     }
+ 
+     pub fn major_minor_to_blk_name(
+diff --git a/src/peripety/src/lib.rs b/src/peripety/src/lib.rs
+index ebd5412..8936656 100644
+--- a/src/peripety/src/lib.rs
++++ b/src/peripety/src/lib.rs
+@@ -29,7 +29,7 @@
+ extern crate serde;
+ #[macro_use]
+ extern crate serde_derive;
+-extern crate libc;
++extern crate libmount;
+ extern crate regex;
+ extern crate serde_json;
+ 
+-- 
+2.20.1
+
